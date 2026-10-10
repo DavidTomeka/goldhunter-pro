@@ -1,0 +1,8 @@
+{
+  "name": "SpikeHunter Pro - Boom & Crash Intelligence",
+  "description": "A high-performance trading intelligence dashboard for Boom 1000 and Crash 1000 markets on MetaTrader 5 (MT5), featuring SMC top-down analysis, liquidity zones, MQL5 EA generator, and Gemini-powered spike pattern recognition.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
