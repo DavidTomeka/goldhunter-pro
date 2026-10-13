@@ -1,7 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TradingSession } from '../types';
-import { Globe, Clock, Zap, RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
-import { SESSIONS_CONFIG, getLiveSessionState } from '../services/sessionService';
+import { 
+  Globe, 
+  Clock, 
+  Zap, 
+  RefreshCw, 
+  AlertCircle, 
+  CheckCircle2, 
+  Terminal, 
+  ChevronDown, 
+  ChevronUp, 
+  Info,
+  SlidersHorizontal,
+  Compass
+} from 'lucide-react';
+import { 
+  SESSIONS_CONFIG, 
+  getLiveSessionState, 
+  logSessionDiagnostic, 
+  TimeDiagnosticInfo 
+} from '../services/sessionService';
 
 interface Props {
   activeSession: TradingSession;
@@ -22,18 +40,29 @@ export const GoldSessionClock: React.FC<Props> = ({
   const [countdown, setCountdown] = useState<string>('');
   const [liveAutoSession, setLiveAutoSession] = useState<TradingSession>('LONDON_OPEN');
   const [isWeekend, setIsWeekend] = useState<boolean>(false);
+  const [diagnostic, setDiagnostic] = useState<TimeDiagnosticInfo | null>(null);
+  const [showDiagnostic, setShowDiagnostic] = useState<boolean>(false);
+  const lastLogTimeRef = useRef<number>(0);
 
   useEffect(() => {
     const updateTimes = () => {
       const now = new Date();
-      setGmtTime(now.toLocaleTimeString('en-GB', { timeZone: 'UTC', hour12: false }));
-      setNyTime(now.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false }));
-      setLondonTime(now.toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour12: false }));
-
       const liveState = getLiveSessionState(now);
+      
+      setGmtTime(liveState.diagnostic.rawUtcTime);
+      setLondonTime(liveState.diagnostic.londonTime);
+      setNyTime(liveState.diagnostic.nyTime);
       setCountdown(liveState.timeRemainingFormatted);
       setLiveAutoSession(liveState.activeSession);
       setIsWeekend(liveState.isWeekend);
+      setDiagnostic(liveState.diagnostic);
+
+      // Log once every 60 seconds to console to avoid spam while keeping console fresh
+      const nowTs = Date.now();
+      if (nowTs - lastLogTimeRef.current > 60000) {
+        logSessionDiagnostic(liveState.diagnostic);
+        lastLogTimeRef.current = nowTs;
+      }
     };
 
     updateTimes();
@@ -41,11 +70,19 @@ export const GoldSessionClock: React.FC<Props> = ({
     return () => clearInterval(interval);
   }, []);
 
+  const handleManualConsoleLog = () => {
+    if (diagnostic) {
+      logSessionDiagnostic(diagnostic);
+      alert?.('Diagnostic logged to Developer Console (Press F12 to inspect).');
+    }
+  };
+
   const getSessionDetails = (id: TradingSession) => {
     return SESSIONS_CONFIG.find(s => s.id === id);
   };
 
   const currentConfig = getSessionDetails(activeSession);
+  const isLondonActive = activeSession === 'LONDON_OPEN';
 
   return (
     <div className="bg-slate-900/90 rounded-2xl border border-slate-800 p-4 shadow-xl space-y-3">
@@ -56,10 +93,11 @@ export const GoldSessionClock: React.FC<Props> = ({
             <Globe className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
                 Institutional Gold Sessions & Killzones
               </h3>
+              
               {sessionMode === 'AUTO' ? (
                 <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -82,9 +120,33 @@ export const GoldSessionClock: React.FC<Props> = ({
                   )}
                 </div>
               )}
+
+              {/* UTC Offset Pill Indicator */}
+              {diagnostic && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30" title={`Your local time offset: ${diagnostic.userUtcOffsetFormatted} (${diagnostic.userTimezone})`}>
+                  <Compass className="w-3 h-3 text-indigo-400" />
+                  Local {diagnostic.userUtcOffsetFormatted}
+                </span>
+              )}
+
+              {/* Diagnostic inspector toggle button */}
+              <button
+                onClick={() => setShowDiagnostic(prev => !prev)}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all flex items-center gap-1 ${
+                  showDiagnostic 
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50' 
+                    : 'bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white hover:border-slate-600'
+                }`}
+                title="Toggle UTC offset debug inspector & raw time verification"
+              >
+                <Terminal className="w-3 h-3" />
+                <span>Time Inspector</span>
+                {showDiagnostic ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+              </button>
             </div>
+            
             <p className="text-[10px] text-slate-400 mt-0.5">
-              Strict ICT timing synchronization with London (BST) & New York (EST) bank trading desks
+              Strict ICT timing synchronization with London (BST/GMT) & New York (EST) bank trading desks
             </p>
           </div>
         </div>
@@ -93,16 +155,16 @@ export const GoldSessionClock: React.FC<Props> = ({
         <div className="flex items-center gap-2 font-mono text-xs flex-wrap sm:flex-nowrap">
           <div className="px-3 py-1.5 bg-slate-950 rounded-lg border border-slate-800 text-center flex-1 sm:flex-none">
             <span className="text-[9px] text-slate-500 block uppercase font-sans font-semibold">GMT / UTC</span>
-            <span className="text-amber-400 font-bold">{gmtTime || '07:00:00'}</span>
+            <span className="text-amber-400 font-bold">{gmtTime || '06:00:00'}</span>
           </div>
           <div className={`px-3 py-1.5 bg-slate-950 rounded-lg border text-center flex-1 sm:flex-none transition-all ${
             activeSession === 'LONDON_OPEN' ? 'border-blue-500/50 ring-1 ring-blue-500/30' : 'border-slate-800'
           }`}>
             <span className="text-[9px] text-blue-400 block uppercase font-sans font-semibold flex items-center justify-center gap-1">
-              London (BST)
+              London ({diagnostic?.londonIsDst ? 'BST' : 'GMT'})
               {activeSession === 'LONDON_OPEN' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
             </span>
-            <span className="text-blue-300 font-bold">{londonTime || '08:00:00'}</span>
+            <span className="text-blue-300 font-bold">{londonTime || '07:00:00'}</span>
           </div>
           <div className={`px-3 py-1.5 bg-slate-950 rounded-lg border text-center flex-1 sm:flex-none transition-all ${
             activeSession === 'NY_AM_KILLZONE' || activeSession === 'NY_PM_SESSION' ? 'border-emerald-500/50 ring-1 ring-emerald-500/30' : 'border-slate-800'
@@ -111,14 +173,110 @@ export const GoldSessionClock: React.FC<Props> = ({
               New York (EST)
               {(activeSession === 'NY_AM_KILLZONE' || activeSession === 'NY_PM_SESSION') && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
             </span>
-            <span className="text-emerald-400 font-bold">{nyTime || '03:00:00'}</span>
+            <span className="text-emerald-400 font-bold">{nyTime || '02:00:00'}</span>
           </div>
         </div>
       </div>
 
+      {/* Expanded Time Inspector / Debug Log Panel */}
+      {showDiagnostic && diagnostic && (
+        <div className="p-3.5 bg-slate-950/95 border border-amber-500/30 rounded-xl space-y-3 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
+            <div className="flex items-center gap-2">
+              <Terminal className="w-4 h-4 text-amber-400" />
+              <span className="font-bold text-white uppercase tracking-wider text-[11px]">
+                Time Offset & Session Calculation Diagnostic
+              </span>
+            </div>
+            <button
+              onClick={handleManualConsoleLog}
+              className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-700 flex items-center gap-1"
+            >
+              <span>Log to Console (F12)</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs font-mono">
+            {/* User Local Time */}
+            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+              <span className="text-[9px] text-slate-400 uppercase font-sans font-semibold block">1. User Local Device Time</span>
+              <div className="text-cyan-400 font-bold text-sm mt-0.5">{diagnostic.rawDeviceLocalTime}</div>
+              <div className="text-[10px] text-slate-400 mt-1 truncate">
+                Zone: <span className="text-slate-300">{diagnostic.userTimezone}</span>
+              </div>
+              <div className="text-[10px] text-slate-400">
+                Offset: <span className="text-amber-300 font-bold">{diagnostic.userUtcOffsetFormatted}</span>
+              </div>
+            </div>
+
+            {/* Normalized UTC / GMT Time */}
+            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+              <span className="text-[9px] text-slate-400 uppercase font-sans font-semibold block">2. Normalized UTC / GMT</span>
+              <div className="text-amber-400 font-bold text-sm mt-0.5">{diagnostic.rawUtcTime}</div>
+              <div className="text-[10px] text-slate-400 mt-1">
+                Day Progress: <span className="text-slate-300 font-bold">{diagnostic.currentUtcMinutes}</span> / 1440 min
+              </div>
+              <div className="text-[10px] text-slate-400">
+                UTC Hour: <span className="text-slate-300">{diagnostic.utcHours}h {diagnostic.utcMinutes}m</span>
+              </div>
+            </div>
+
+            {/* London Desk Time & DST */}
+            <div className={`p-2.5 rounded-lg bg-slate-900 border transition-all ${
+              diagnostic.londonSessionStatus.status === 'ACTIVE' ? 'border-blue-500/50 bg-blue-950/20' : 'border-slate-800'
+            }`}>
+              <span className="text-[9px] text-slate-400 uppercase font-sans font-semibold block">3. London Bank Desk</span>
+              <div className="text-blue-400 font-bold text-sm mt-0.5">{diagnostic.londonTime}</div>
+              <div className="text-[10px] text-slate-400 mt-1">
+                Standard: <span className="text-blue-300 font-semibold">{diagnostic.londonIsDst ? 'BST (UTC+1 Daylight)' : 'GMT (UTC+0 Winter)'}</span>
+              </div>
+              <div className="text-[10px] text-slate-400">
+                Trading Desk: <span className="text-slate-300">06:00 - 12:00 GMT</span>
+              </div>
+            </div>
+
+            {/* Active Session Result */}
+            <div className="p-2.5 rounded-lg bg-slate-900 border border-emerald-500/40 bg-emerald-950/15">
+              <span className="text-[9px] text-slate-400 uppercase font-sans font-semibold block">4. Evaluated Active Session</span>
+              <div className="text-emerald-400 font-bold text-sm mt-0.5">{diagnostic.determinedSession}</div>
+              <div className="text-[10px] text-slate-400 mt-1 truncate">
+                Mode: <span className="text-emerald-300">{sessionMode}</span>
+              </div>
+              <div className="text-[10px] text-slate-400">
+                Countdown: <span className="text-amber-300 font-bold">{countdown}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* London Session Status Explanatory Box */}
+          <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 text-xs space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase font-bold text-slate-400">London Session Verification:</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                diagnostic.londonSessionStatus.status === 'ACTIVE'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+              }`}>
+                {diagnostic.londonSessionStatus.status}
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">
+                Window: {diagnostic.londonSessionStatus.windowGmt} ({diagnostic.londonSessionStatus.windowLondon})
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+              <strong className="text-white">Reason: </strong>
+              {diagnostic.londonSessionStatus.details}
+            </p>
+            <p className="text-[10px] text-slate-400 font-mono">
+              Formula: {diagnostic.sessionMatchReason}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Live Status Bar */}
       <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className={`w-2.5 h-2.5 rounded-full ${isWeekend ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'}`} />
           <span className="text-slate-400">Current Phase:</span>
           <span className="font-bold text-white flex items-center gap-1">
@@ -127,6 +285,14 @@ export const GoldSessionClock: React.FC<Props> = ({
           <span className="text-[10px] text-slate-500 font-mono hidden md:inline">
             ({currentConfig?.gmtRange})
           </span>
+
+          {/* Inline London Indicator if London is Active */}
+          {isLondonActive && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40">
+              <Zap className="w-2.5 h-2.5 text-blue-400" />
+              London Desks Open & Quoting
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -194,6 +360,9 @@ export const GoldSessionClock: React.FC<Props> = ({
                     Executing
                   </span>
                 )}
+              </div>
+              <div className="text-[9px] text-slate-500 font-mono mb-1">
+                {sess.localLondonRange}
               </div>
               <p className="text-[10px] text-slate-300 leading-snug line-clamp-2">
                 {sess.liquidity}
