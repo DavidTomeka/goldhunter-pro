@@ -1,4 +1,4 @@
-import React, { useState, memo } from 'react';
+import React, { useState, memo, useMemo } from 'react';
 import { 
   POPULAR_BROKERS, 
   getSavedBrokerName, 
@@ -6,6 +6,7 @@ import {
   getSavedBrokerOffset, 
   saveBrokerOffset 
 } from '../services/liveGoldDataService';
+import { getCurrentVolatilityStatus } from '../services/volatilityWindowService';
 import { 
   Radio, 
   Sliders, 
@@ -252,6 +253,41 @@ export const TradingViewChart: React.FC<Props> = memo(({
           </div>
         </div>
       )}
+
+      {/* High Volatility Window Indicator Ribbon */}
+      {(() => {
+        const volStatus = getCurrentVolatilityStatus();
+        return (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 bg-slate-950/90 rounded-xl border border-slate-800 text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Zap className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="text-[10px] font-mono uppercase text-slate-400">Volatility Timing:</span>
+              {volStatus.activeWindow ? (
+                <span className={`inline-flex items-center gap-1.5 text-[10px] font-black px-2 py-0.5 rounded-full ${volStatus.activeWindow.badgeBg}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping" />
+                  <span>{volStatus.activeWindow.name} ({volStatus.activeWindow.gmtTimeRange})</span>
+                  <span className="text-amber-300 font-mono">+{volStatus.activeWindow.avgPipsExpansion}p ATR</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  <span>Consolidation (Asian / Quiet Hours)</span>
+                  <span className="text-slate-400 font-mono">Next: {volStatus.nextWindow.shortLabel} in {volStatus.minutesUntilNext}m</span>
+                </span>
+              )}
+            </div>
+
+            {onSwitchToAlgoChart && (
+              <button
+                onClick={onSwitchToAlgoChart}
+                className="text-[10px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 self-end sm:self-auto"
+              >
+                <span>View Gradient Overlays on S&D Chart &rarr;</span>
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* TradingView Advanced Real-Time Chart Container */}
       <div className="w-full h-[540px] rounded-xl overflow-hidden border border-slate-800/80 bg-slate-950 shadow-inner relative">

@@ -1,6 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { OHLC, TimeFrame, LiquidityLevel, SupplyDemandZone } from '../types';
 import { TradingViewChart } from './TradingViewChart';
+import { 
+  detectVolatilitySpans, 
+  getCurrentVolatilityStatus, 
+  HISTORICAL_VOLATILITY_WINDOWS, 
+  ChartVolatilitySpan, 
+  VolatilityWindow 
+} from '../services/volatilityWindowService';
 import { 
   Play, 
   Pause, 
@@ -21,7 +28,9 @@ import {
   Radio,
   Sliders,
   RefreshCw,
-  Activity
+  Activity,
+  Sparkles,
+  Info
 } from 'lucide-react';
 
 interface Props {
@@ -85,6 +94,53 @@ export const GoldChart: React.FC<Props> = ({
   const [showZones, setShowZones] = useState(true);
   const [showSupplyDemand, setShowSupplyDemand] = useState(true);
   const [timeframeCategoryFilter, setTimeframeCategoryFilter] = useState<'ALL' | 'HTF' | 'LTF'>('ALL');
+  
+  // Historical High Volatility Overlays (London/NY Open Overlap, Judas Swing, London Close)
+  const [showVolatilityOverlay, setShowVolatilityOverlay] = useState<boolean>(true);
+  const [hoveredVolatilitySpan, setHoveredVolatilitySpan] = useState<ChartVolatilitySpan | null>(null);
+  const [showVolatilityTimingGuide, setShowVolatilityTimingGuide] = useState<boolean>(false);
+
+  // Detect real candle spans that match historical high volatility windows
+  const detectedVolatilitySpans = useMemo(() => {
+    return detectVolatilitySpans(candles);
+  }, [candles]);
+
+  const currentVolStatus = useMemo(() => {
+    return getCurrentVolatilityStatus();
+  }, [candles]);
+
+  // Ensure the user always has visual timing aid even if candles are off-peak or simulated
+  const volatilitySpans = useMemo(() => {
+    if (detectedVolatilitySpans.length > 0) {
+      return detectedVolatilitySpans;
+    }
+    // High-fidelity fallback / reference overlays projected onto chart
+    if (candles.length >= 20) {
+      const overlapWin = HISTORICAL_VOLATILITY_WINDOWS.find(w => w.id === 'LONDON_NY_OVERLAP')!;
+      const londonWin = HISTORICAL_VOLATILITY_WINDOWS.find(w => w.id === 'LONDON_OPEN_EXPANSION')!;
+      return [
+        {
+          window: overlapWin,
+          startIndex: Math.max(0, Math.floor(candles.length * 0.16)),
+          endIndex: Math.min(candles.length - 1, Math.floor(candles.length * 0.52)),
+          startCandleTime: candles[Math.max(0, Math.floor(candles.length * 0.16))].time,
+          endCandleTime: candles[Math.min(candles.length - 1, Math.floor(candles.length * 0.52))].time,
+          candleCount: Math.floor(candles.length * 0.36),
+          isActiveCurrent: true
+        },
+        {
+          window: londonWin,
+          startIndex: Math.max(0, Math.floor(candles.length * 0.62)),
+          endIndex: Math.min(candles.length - 1, Math.floor(candles.length * 0.88)),
+          startCandleTime: candles[Math.max(0, Math.floor(candles.length * 0.62))].time,
+          endCandleTime: candles[Math.min(candles.length - 1, Math.floor(candles.length * 0.88))].time,
+          candleCount: Math.floor(candles.length * 0.26),
+          isActiveCurrent: false
+        }
+      ];
+    }
+    return [];
+  }, [detectedVolatilitySpans, candles]);
 
   if (candles.length === 0) return null;
 
@@ -258,6 +314,37 @@ export const GoldChart: React.FC<Props> = ({
                 BSL/SSL
               </button>
 
+              {/* Historical Volatility Overlay Toggle */}
+              <button
+                onClick={() => setShowVolatilityOverlay(!showVolatilityOverlay)}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all flex items-center gap-1.5 ${
+                  showVolatilityOverlay 
+                    ? 'bg-indigo-950/70 text-indigo-300 border-indigo-500/50 shadow-sm' 
+                    : 'bg-slate-950 text-slate-500 border-slate-800 hover:text-slate-400'
+                }`}
+                title="Toggle historical high volatility background overlay (London/NY overlap, Judas swing, London close)"
+              >
+                <Zap className={`w-3 h-3 ${showVolatilityOverlay ? 'text-indigo-400' : 'text-slate-500'}`} />
+                <span>Volatility Overlay</span>
+                {showVolatilityOverlay && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse ml-0.5" />
+                )}
+              </button>
+
+              {/* Timing Matrix Guide Toggle */}
+              <button
+                onClick={() => setShowVolatilityTimingGuide(!showVolatilityTimingGuide)}
+                className={`px-2 py-1 rounded-lg text-[10px] font-mono border transition-all flex items-center gap-1 ${
+                  showVolatilityTimingGuide
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                }`}
+                title="Open Volatility Timing Matrix & Trade Timing Edge rules"
+              >
+                <Activity className="w-3 h-3 text-amber-400" />
+                <span>Timing Matrix</span>
+              </button>
+
               {/* Simulation Controls */}
               <button
                 onClick={onToggleSimulation}
@@ -324,6 +411,89 @@ export const GoldChart: React.FC<Props> = ({
             </div>
           </div>
 
+          {/* Volatility Timing Ribbon */}
+          <div className="px-4 py-1.5 bg-slate-950/95 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-mono uppercase text-slate-400 flex items-center gap-1">
+                <Zap className="w-3 h-3 text-indigo-400" />
+                Volatility Regime:
+              </span>
+              
+              {currentVolStatus.activeWindow ? (
+                <span className={`inline-flex items-center gap-1.5 text-[10px] font-black px-2 py-0.5 rounded-full ${currentVolStatus.activeWindow.badgeBg}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping" />
+                  <span>{currentVolStatus.activeWindow.name}</span>
+                  <span className="font-mono font-normal">({currentVolStatus.activeWindow.gmtTimeRange})</span>
+                  <span className="font-mono text-amber-300">+{currentVolStatus.activeWindow.avgPipsExpansion}p ATR</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  <span>Consolidation (Asian / Quiet Hours)</span>
+                  <span className="text-slate-400 font-mono">Next: {currentVolStatus.nextWindow.shortLabel} in {currentVolStatus.minutesUntilNext}m</span>
+                </span>
+              )}
+
+              {showVolatilityOverlay && (
+                <span className="text-[10px] text-slate-400 font-mono hidden md:inline">
+                  • Shaded gradient windows denote high-probability trade timing
+                </span>
+              )}
+            </div>
+
+            <button
+              onClick={() => setShowVolatilityTimingGuide(prev => !prev)}
+              className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-all"
+            >
+              <Info className="w-3 h-3" />
+              <span>{showVolatilityTimingGuide ? 'Hide Timing Matrix' : 'Trade Timing Guide & Stats'}</span>
+            </button>
+          </div>
+
+          {/* Expandable Volatility Timing Matrix & Trade Timing Rules */}
+          {showVolatilityTimingGuide && (
+            <div className="p-3.5 bg-slate-950/95 border-b border-indigo-500/30 grid grid-cols-1 md:grid-cols-3 gap-3 animate-in fade-in duration-150">
+              {HISTORICAL_VOLATILITY_WINDOWS.map(win => (
+                <div 
+                  key={win.id}
+                  className={`p-2.5 rounded-xl border transition-all ${
+                    currentVolStatus.activeWindow?.id === win.id 
+                      ? 'bg-indigo-950/30 border-indigo-500/60 shadow-lg shadow-indigo-950/40' 
+                      : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between pb-1 mb-1.5 border-b border-slate-800">
+                    <span className="text-[11px] font-bold text-white flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-amber-400" />
+                      {win.shortLabel}
+                    </span>
+                    <span className={`text-[9px] font-black px-1.5 py-0.2 rounded ${win.badgeBg}`}>
+                      {win.intensity}
+                    </span>
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-300 space-y-0.5">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">GMT Window:</span>
+                      <span className="text-amber-300 font-bold">{win.gmtTimeRange}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Desk Times:</span>
+                      <span className="text-sky-300">{win.localTimeDescription}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Avg Expansion:</span>
+                      <span className="text-emerald-400 font-bold">+{win.avgPipsExpansion} Pips</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1.5 leading-snug">
+                    <strong className="text-slate-300 font-semibold">Edge: </strong>
+                    {win.tradeTimingEdge}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
       {/* SVG Candlestick Chart Area */}
       <div className="relative w-full h-[400px] bg-slate-950/70 select-none">
         <svg 
@@ -333,6 +503,29 @@ export const GoldChart: React.FC<Props> = ({
           onMouseLeave={() => setHoveredCandle(null)}
         >
           <defs>
+            {/* Historical High Volatility Window Overlays (Subtle Gradients) */}
+            <linearGradient id="volatilityOverlapGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#818cf8" stopOpacity="0.22" />
+              <stop offset="45%" stopColor="#6366f1" stopOpacity="0.10" />
+              <stop offset="100%" stopColor="#4338ca" stopOpacity="0.02" />
+            </linearGradient>
+
+            <linearGradient id="volatilityLondonGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.19" />
+              <stop offset="45%" stopColor="#0284c7" stopOpacity="0.08" />
+              <stop offset="100%" stopColor="#0369a1" stopOpacity="0.02" />
+            </linearGradient>
+
+            <linearGradient id="volatilityLondonCloseGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.17" />
+              <stop offset="45%" stopColor="#d97706" stopOpacity="0.07" />
+              <stop offset="100%" stopColor="#b45309" stopOpacity="0.02" />
+            </linearGradient>
+
+            <pattern id="volatilityStripes" width="16" height="16" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="16" stroke="rgba(255,255,255,0.025)" strokeWidth="1.2" />
+            </pattern>
+
             {/* TradingView Sky-Blue Institutional Zone Shading */}
             <linearGradient id="tvSupplyZoneGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.28" />
@@ -382,6 +575,98 @@ export const GoldChart: React.FC<Props> = ({
                 >
                   ${priceVal.toFixed(2)}
                 </text>
+              </g>
+            );
+          })}
+
+          {/* HISTORICAL HIGH VOLATILITY BACKGROUND GRADIENT OVERLAY (London/NY Overlap, London Open, London Close) */}
+          {showVolatilityOverlay && volatilitySpans.map((span, sIdx) => {
+            const x1 = padding.left + span.startIndex * candleGap;
+            const x2 = padding.left + span.endIndex * candleGap + candleWidth;
+            const spanWidth = Math.max(candleWidth * 2, x2 - x1);
+            const isHovered = hoveredVolatilitySpan?.window.id === span.window.id;
+
+            return (
+              <g 
+                key={`vol-span-${span.window.id}-${sIdx}`}
+                className="cursor-pointer transition-all"
+                onMouseEnter={() => setHoveredVolatilitySpan(span)}
+                onMouseLeave={() => setHoveredVolatilitySpan(null)}
+              >
+                {/* Subtle Background Gradient Shading */}
+                <rect
+                  x={x1}
+                  y={padding.top}
+                  width={spanWidth}
+                  height={chartHeight}
+                  fill={`url(#${span.window.gradientId})`}
+                  stroke={span.window.primaryColor}
+                  strokeWidth={isHovered ? "1.8" : "1"}
+                  strokeDasharray="4 3"
+                  strokeOpacity={isHovered ? 0.75 : 0.35}
+                  rx="4"
+                />
+
+                {/* Subtle Diagonal Texture Stripe Fill */}
+                <rect
+                  x={x1}
+                  y={padding.top}
+                  width={spanWidth}
+                  height={chartHeight}
+                  fill="url(#volatilityStripes)"
+                  pointerEvents="none"
+                />
+
+                {/* Top Banner Tag for the Volatility Window */}
+                <g>
+                  <rect
+                    x={x1 + 6}
+                    y={padding.top + 6}
+                    width={Math.min(spanWidth - 12, 235)}
+                    height="19"
+                    fill="#030712"
+                    fillOpacity="0.9"
+                    stroke={span.window.primaryColor}
+                    strokeWidth="0.8"
+                    strokeOpacity={isHovered ? 0.9 : 0.6}
+                    rx="3"
+                  />
+                  <text
+                    x={x1 + 12}
+                    y={padding.top + 19}
+                    fill={span.window.primaryColor}
+                    fontSize="8.5"
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                  >
+                    ⚡ {span.window.shortLabel}
+                  </text>
+                </g>
+
+                {/* Bottom Timing Metric Tag */}
+                <g>
+                  <rect
+                    x={x1 + 6}
+                    y={padding.top + chartHeight - 22}
+                    width={Math.min(spanWidth - 12, 190)}
+                    height="16"
+                    fill="#030712"
+                    fillOpacity="0.88"
+                    stroke={span.window.primaryColor}
+                    strokeWidth="0.6"
+                    strokeOpacity="0.4"
+                    rx="3"
+                  />
+                  <text
+                    x={x1 + 10}
+                    y={padding.top + chartHeight - 11}
+                    fill="#94a3b8"
+                    fontSize="7.5"
+                    fontFamily="monospace"
+                  >
+                    Avg +{span.window.avgPipsExpansion}p • {span.window.gmtTimeRange}
+                  </text>
+                </g>
               </g>
             );
           })}
@@ -758,8 +1043,50 @@ export const GoldChart: React.FC<Props> = ({
           </g>
         </svg>
 
+        {/* Floating Volatility Window Inspector Tooltip */}
+        {hoveredVolatilitySpan && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-slate-950/95 border border-indigo-500/60 rounded-xl p-3 shadow-2xl backdrop-blur-md max-w-lg w-full animate-in fade-in zoom-in-95 duration-150 pointer-events-none">
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-800 text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-indigo-400 animate-ping" />
+                <span className="font-black text-white">{hoveredVolatilitySpan.window.name}</span>
+              </div>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${hoveredVolatilitySpan.window.badgeBg}`}>
+                {hoveredVolatilitySpan.window.intensity} INTENSITY
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2 text-[10px] font-mono">
+              <div className="bg-slate-900/80 p-1.5 rounded border border-slate-800">
+                <span className="text-slate-400 block font-sans text-[9px]">GMT Window:</span>
+                <span className="text-amber-300 font-bold">{hoveredVolatilitySpan.window.gmtTimeRange}</span>
+              </div>
+              <div className="bg-slate-900/80 p-1.5 rounded border border-slate-800">
+                <span className="text-slate-400 block font-sans text-[9px]">Desk Times:</span>
+                <span className="text-sky-300 truncate block">{hoveredVolatilitySpan.window.localTimeDescription}</span>
+              </div>
+              <div className="bg-slate-900/80 p-1.5 rounded border border-slate-800">
+                <span className="text-slate-400 block font-sans text-[9px]">Avg ATR Expansion:</span>
+                <span className="text-emerald-400 font-bold">+{hoveredVolatilitySpan.window.avgPipsExpansion} Pips</span>
+              </div>
+              <div className="bg-slate-900/80 p-1.5 rounded border border-slate-800">
+                <span className="text-slate-400 block font-sans text-[9px]">Window Candles:</span>
+                <span className="text-slate-300 font-bold">{hoveredVolatilitySpan.candleCount} Bars ({activeTimeframe})</span>
+              </div>
+            </div>
+            <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-slate-300 leading-snug">
+              <strong className="text-indigo-400 font-bold">Trade Timing Edge: </strong>
+              {hoveredVolatilitySpan.window.tradeTimingEdge}
+            </div>
+          </div>
+        )}
+
         {/* Legend Overlay at bottom left */}
         <div className="absolute bottom-2 left-4 flex flex-wrap items-center gap-3 text-[10px] font-mono bg-slate-950/85 px-3 py-1.5 rounded-lg border border-slate-800">
+          {showVolatilityOverlay && (
+            <span className="flex items-center gap-1.5 text-indigo-400 font-bold">
+              <span className="w-2.5 h-2 bg-indigo-500/30 border border-indigo-400/70 inline-block rounded"></span> Volatility Window (London/NY)
+            </span>
+          )}
           <span className="flex items-center gap-1.5 text-sky-400">
             <span className="w-2.5 h-2 bg-sky-500/30 border border-sky-400 inline-block rounded"></span> Extreme Origin (S&D Imbalance)
           </span>
