@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoldHunter Pro - Institutional Gold (XAU/USD) Intelligence</title>
+    <meta name="description" content="An institutional Gold (XAU/USD) trading intelligence terminal for MetaTrader 5 (MT5), featuring Smart Money Concepts (SMC), Liquidity Sweeps, Killzones, MQL5 EA generator, and Gemini-powered signal recognition.">
+    <meta property="og:title" content="GoldHunter Pro - Institutional Gold (XAU/USD) Intelligence">
+    <meta property="og:description" content="An institutional Gold (XAU/USD) trading intelligence terminal for MetaTrader 5 (MT5), featuring Smart Money Concepts (SMC), Liquidity Sweeps, Killzones, MQL5 EA generator, and Gemini-powered signal recognition.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/index.css">
+    <script>
+      window.addEventListener('error', function(e) {
+        if (e.message === 'Script error.' || !e.filename) {
+          console.warn('Cross-origin script error handled:', e);
+          e.preventDefault();
+          return true;
+        }
+      });
+      window.onerror = function(msg, url, line, col, error) {
+        if (msg === 'Script error.' || !url) {
+          console.warn('Global script error handled:', msg);
+          return true;
+        }
+        return false;
+      };
+    </script>
+</head>
+<body class="bg-slate-950 text-slate-100 antialiased selection:bg-amber-500 selection:text-slate-950">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+</body>
+</html>
